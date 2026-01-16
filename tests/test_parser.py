@@ -15,25 +15,104 @@ from ccjournal.parser import (
 class TestDecodeProjectPath:
     """Tests for decode_project_path function."""
 
-    def test_decode_absolute_path(self) -> None:
-        """Absolute paths start with '-' which becomes '/'."""
-        encoded = "-Users-takeda-projects-myapp"
-        result = decode_project_path(encoded)
-        assert result == Path("/Users/takeda/projects/myapp")
+    def test_decode_path_with_dots(self) -> None:
+        """Paths with dots in directory names (e.g., github.com)."""
+        import uuid
+
+        # Use /tmp with unique subdirectory to avoid path encoding issues
+        base = Path("/tmp") / f"ccjournal_test_{uuid.uuid4().hex[:8]}"
+        try:
+            (base / "ghq" / "github.com" / "user" / "repo").mkdir(parents=True)
+
+            encoded = f"-tmp-{base.name}-ghq-github-com-user-repo"
+            result = decode_project_path(encoded)
+            assert result == base / "ghq" / "github.com" / "user" / "repo"
+        finally:
+            import shutil
+
+            shutil.rmtree(base, ignore_errors=True)
+
+    def test_decode_path_with_dashes(self) -> None:
+        """Paths with dashes in directory names (e.g., my-project)."""
+        import uuid
+
+        base = Path("/tmp") / f"ccjournal_test_{uuid.uuid4().hex[:8]}"
+        try:
+            (base / "projects" / "my-project").mkdir(parents=True)
+
+            encoded = f"-tmp-{base.name}-projects-my-project"
+            result = decode_project_path(encoded)
+            assert result == base / "projects" / "my-project"
+        finally:
+            import shutil
+
+            shutil.rmtree(base, ignore_errors=True)
+
+    def test_decode_path_with_dots_and_dashes(self) -> None:
+        """Complex paths with both dots and dashes."""
+        import uuid
+
+        base = Path("/tmp") / f"ccjournal_test_{uuid.uuid4().hex[:8]}"
+        try:
+            (base / "ghq" / "github.com" / "org-name" / "my-repo").mkdir(parents=True)
+
+            encoded = f"-tmp-{base.name}-ghq-github-com-org-name-my-repo"
+            result = decode_project_path(encoded)
+            assert result == base / "ghq" / "github.com" / "org-name" / "my-repo"
+        finally:
+            import shutil
+
+            shutil.rmtree(base, ignore_errors=True)
+
+    def test_decode_path_with_dotted_username(self) -> None:
+        """Paths with dotted usernames (e.g., takeda.takashi)."""
+        import uuid
+
+        base = Path("/tmp") / f"ccjournal_test_{uuid.uuid4().hex[:8]}"
+        try:
+            (base / "Users" / "takeda.takashi" / "projects").mkdir(parents=True)
+
+            encoded = f"-tmp-{base.name}-Users-takeda-takashi-projects"
+            result = decode_project_path(encoded)
+            assert result == base / "Users" / "takeda.takashi" / "projects"
+        finally:
+            import shutil
+
+            shutil.rmtree(base, ignore_errors=True)
 
     def test_decode_relative_path(self) -> None:
         """Relative paths don't start with '-'."""
+        # Relative paths use simple replacement (no existence check)
         encoded = "projects-myapp"
         result = decode_project_path(encoded)
         assert result == Path("projects/myapp")
+
+    def test_decode_nonexistent_path(self) -> None:
+        """Non-existent paths should use '/' as separator."""
+        encoded = "-nonexistent-path-to-project"
+        result = decode_project_path(encoded)
+        # When path doesn't exist, uses simple '/' separation
+        assert result == Path("/nonexistent/path/to/project")
 
 
 class TestNormalizeRemoteUrl:
     """Tests for normalize_remote_url function."""
 
-    def test_ssh_url(self) -> None:
-        """SSH URLs should be normalized."""
+    def test_ssh_scp_url(self) -> None:
+        """SSH URLs in scp-like syntax should be normalized."""
         url = "git@github.com:user/repo.git"
+        result = normalize_remote_url(url)
+        assert result == "github.com/user/repo"
+
+    def test_ssh_url_syntax(self) -> None:
+        """SSH URLs in URL syntax should be normalized."""
+        url = "ssh://git@github.com/user/repo.git"
+        result = normalize_remote_url(url)
+        assert result == "github.com/user/repo"
+
+    def test_ssh_url_syntax_without_suffix(self) -> None:
+        """SSH URLs in URL syntax without .git suffix should work."""
+        url = "ssh://git@github.com/user/repo"
         result = normalize_remote_url(url)
         assert result == "github.com/user/repo"
 

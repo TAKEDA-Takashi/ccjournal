@@ -46,16 +46,68 @@ class Session:
 def decode_project_path(encoded: str) -> Path:
     """Decode a Claude Code project directory name to original path.
 
-    Claude Code encodes paths by replacing '/' with '-'.
-    Example: -Users-takeda-projects-myapp -> /Users/takeda/projects/myapp
-    """
-    if encoded.startswith("-"):
-        # Remove leading '-' and replace remaining '-' with '/'
-        path_str = "/" + encoded[1:].replace("-", "/")
-    else:
-        path_str = encoded.replace("-", "/")
+    Claude Code encodes paths by replacing '/' and '.' with '-'.
+    This function attempts to find the correct path by checking
+    for directory existence at each step.
 
-    return Path(path_str)
+    Example:
+        -Users-takeda-takashi-ghq-github-com-org-repo
+        -> /Users/takeda.takashi/ghq/github.com/org/repo (if these dirs exist)
+    """
+    if not encoded.startswith("-"):
+        # Relative path - simple replacement
+        return Path(encoded.replace("-", "/"))
+
+    parts = encoded[1:].split("-")
+    return _find_existing_path(parts, Path("/"))
+
+
+def _find_existing_path(parts: list[str], base: Path) -> Path:
+    """Find the actual path by checking directory existence.
+
+    Tries to reconstruct the original path by checking if directories exist.
+    When a directory doesn't exist with '/' separator, tries '.' then '-'.
+    """
+    if not parts:
+        return base
+
+    result_parts: list[str] = []
+    i = 0
+
+    while i < len(parts):
+        segment = parts[i]
+
+        # Try to find the longest matching segment
+        best_match = segment
+        best_match_end = i + 1
+
+        j = i + 1
+        while j < len(parts):
+            # Try extending with '.' or '-'
+            test_with_dot = segment + "." + parts[j]
+            test_with_dash = segment + "-" + parts[j]
+
+            test_path_dot = base / "/".join(result_parts + [test_with_dot])
+            test_path_dash = base / "/".join(result_parts + [test_with_dash])
+
+            if test_path_dot.exists() and test_path_dot.is_dir():
+                segment = test_with_dot
+                best_match = segment
+                best_match_end = j + 1
+                j += 1
+            elif test_path_dash.exists() and test_path_dash.is_dir():
+                segment = test_with_dash
+                best_match = segment
+                best_match_end = j + 1
+                j += 1
+            else:
+                # No match found with extended segment
+                break
+
+        result_parts.append(best_match)
+        i = best_match_end
+
+    return base / "/".join(result_parts)
 
 
 def get_git_remote_url(path: Path) -> str | None:
@@ -98,14 +150,20 @@ def normalize_remote_url(url: str) -> str:
     Example:
         git@github.com:user/repo.git -> github.com/user/repo
         https://github.com/user/repo.git -> github.com/user/repo
+        ssh://git@github.com/user/repo.git -> github.com/user/repo
     """
     # Remove .git suffix
     url = re.sub(r"\.git$", "", url)
 
-    # Handle SSH URLs (git@github.com:user/repo)
-    ssh_match = re.match(r"git@([^:]+):(.+)", url)
-    if ssh_match:
-        return f"{ssh_match.group(1)}/{ssh_match.group(2)}"
+    # Handle SSH URLs in scp-like syntax (git@github.com:user/repo)
+    scp_match = re.match(r"git@([^:]+):(.+)", url)
+    if scp_match:
+        return f"{scp_match.group(1)}/{scp_match.group(2)}"
+
+    # Handle SSH URLs in URL syntax (ssh://git@github.com/user/repo)
+    ssh_url_match = re.match(r"ssh://git@([^/]+)/(.+)", url)
+    if ssh_url_match:
+        return f"{ssh_url_match.group(1)}/{ssh_url_match.group(2)}"
 
     # Handle HTTPS URLs (https://github.com/user/repo)
     https_match = re.match(r"https?://([^/]+)/(.+)", url)
@@ -118,12 +176,12 @@ def normalize_remote_url(url: str) -> str:
 def extract_project_name(path: Path) -> str:
     """Extract a project name from a path.
 
-    Uses Git remote URL if available, otherwise uses directory name.
+    Uses Git remote URL if available, otherwise uses directory name with '_local-' prefix.
     """
     remote_url = get_git_remote_url(path)
     if remote_url:
         return normalize_remote_url(remote_url)
-    return path.name
+    return f"_local-{path.name}"
 
 
 def extract_text_content(content: str | list | dict) -> str:
