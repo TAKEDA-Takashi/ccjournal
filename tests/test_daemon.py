@@ -9,7 +9,12 @@ from unittest.mock import MagicMock, patch
 from ccjournal.config import Config
 from ccjournal.daemon import (
     DaemonProcess,
+    generate_launchd_plist,
+    generate_systemd_service,
     get_daemon_status,
+    get_default_log_path,
+    get_launchd_plist_path,
+    get_systemd_service_path,
     is_process_running,
     read_pid_file,
     stop_daemon,
@@ -210,3 +215,143 @@ class TestDaemonProcess:
         daemon.stop()
 
         assert daemon.running is False
+
+
+class TestServicePaths:
+    """Tests for service path functions."""
+
+    def test_get_launchd_plist_path_user(self) -> None:
+        """get_launchd_plist_path returns user LaunchAgents path for user=True."""
+        path = get_launchd_plist_path(user=True)
+
+        assert path.name == "com.ccjournal.daemon.plist"
+        assert "LaunchAgents" in str(path)
+
+    def test_get_launchd_plist_path_system(self) -> None:
+        """get_launchd_plist_path returns system LaunchDaemons path for user=False."""
+        path = get_launchd_plist_path(user=False)
+
+        assert path.name == "com.ccjournal.daemon.plist"
+        assert path == Path("/Library/LaunchDaemons/com.ccjournal.daemon.plist")
+
+    def test_get_systemd_service_path_user(self) -> None:
+        """get_systemd_service_path returns user systemd path for user=True."""
+        path = get_systemd_service_path(user=True)
+
+        assert path.name == "ccjournal.service"
+        assert ".config/systemd/user" in str(path)
+
+    def test_get_systemd_service_path_system(self) -> None:
+        """get_systemd_service_path returns system systemd path for user=False."""
+        path = get_systemd_service_path(user=False)
+
+        assert path == Path("/etc/systemd/system/ccjournal.service")
+
+    def test_get_default_log_path(self) -> None:
+        """get_default_log_path returns expected path."""
+        path = get_default_log_path()
+
+        assert path.name == "daemon.log"
+        assert ".config/ccjournal" in str(path)
+
+
+class TestGenerateLaunchdPlist:
+    """Tests for generate_launchd_plist function."""
+
+    def test_generates_valid_xml(self) -> None:
+        """generate_launchd_plist generates valid XML plist."""
+        ccjournal_path = "/usr/local/bin/ccjournal"
+        log_path = Path("/Users/test/.config/ccjournal/daemon.log")
+
+        content = generate_launchd_plist(ccjournal_path, log_path)
+
+        assert '<?xml version="1.0" encoding="UTF-8"?>' in content
+        assert "<!DOCTYPE plist" in content
+        assert '<plist version="1.0">' in content
+
+    def test_contains_label(self) -> None:
+        """generate_launchd_plist includes correct label."""
+        content = generate_launchd_plist("/bin/ccjournal", Path("/tmp/log"))
+
+        assert "<key>Label</key>" in content
+        assert "<string>com.ccjournal.daemon</string>" in content
+
+    def test_contains_program_arguments(self) -> None:
+        """generate_launchd_plist includes program arguments."""
+        ccjournal_path = "/opt/bin/ccjournal"
+        content = generate_launchd_plist(ccjournal_path, Path("/tmp/log"))
+
+        assert "<key>ProgramArguments</key>" in content
+        assert f"<string>{ccjournal_path}</string>" in content
+        assert "<string>daemon</string>" in content
+        assert "<string>start</string>" in content
+        assert "<string>--foreground</string>" in content
+
+    def test_contains_run_at_load(self) -> None:
+        """generate_launchd_plist sets RunAtLoad to true."""
+        content = generate_launchd_plist("/bin/ccjournal", Path("/tmp/log"))
+
+        assert "<key>RunAtLoad</key>" in content
+        assert "<true/>" in content
+
+    def test_contains_keep_alive(self) -> None:
+        """generate_launchd_plist sets KeepAlive to true."""
+        content = generate_launchd_plist("/bin/ccjournal", Path("/tmp/log"))
+
+        assert "<key>KeepAlive</key>" in content
+
+    def test_contains_log_paths(self) -> None:
+        """generate_launchd_plist includes log paths."""
+        log_path = Path("/Users/test/.config/ccjournal/daemon.log")
+        content = generate_launchd_plist("/bin/ccjournal", log_path)
+
+        assert "<key>StandardOutPath</key>" in content
+        assert "<key>StandardErrorPath</key>" in content
+        assert f"<string>{log_path}</string>" in content
+
+
+class TestGenerateSystemdService:
+    """Tests for generate_systemd_service function."""
+
+    def test_contains_unit_section(self) -> None:
+        """generate_systemd_service includes Unit section."""
+        content = generate_systemd_service("/bin/ccjournal", Path("/tmp/log"))
+
+        assert "[Unit]" in content
+        assert "Description=ccjournal" in content
+        assert "After=network.target" in content
+
+    def test_contains_service_section(self) -> None:
+        """generate_systemd_service includes Service section."""
+        ccjournal_path = "/opt/bin/ccjournal"
+        content = generate_systemd_service(ccjournal_path, Path("/tmp/log"))
+
+        assert "[Service]" in content
+        assert "Type=simple" in content
+        assert f"ExecStart={ccjournal_path} daemon start --foreground" in content
+        assert "Restart=on-failure" in content
+        assert "RestartSec=10" in content
+
+    def test_contains_install_section(self) -> None:
+        """generate_systemd_service includes Install section."""
+        content = generate_systemd_service("/bin/ccjournal", Path("/tmp/log"))
+
+        assert "[Install]" in content
+        assert "WantedBy=default.target" in content
+
+    def test_contains_log_paths(self) -> None:
+        """generate_systemd_service includes log paths."""
+        log_path = Path("/home/user/.config/ccjournal/daemon.log")
+        content = generate_systemd_service("/bin/ccjournal", log_path)
+
+        assert f"StandardOutput=append:{log_path}" in content
+        assert f"StandardError=append:{log_path}" in content
+
+    def test_different_paths_produce_different_content(self) -> None:
+        """generate_systemd_service produces different content for different paths."""
+        content1 = generate_systemd_service("/path/one", Path("/log/one"))
+        content2 = generate_systemd_service("/path/two", Path("/log/two"))
+
+        assert content1 != content2
+        assert "/path/one" in content1
+        assert "/path/two" in content2

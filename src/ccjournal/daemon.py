@@ -376,3 +376,108 @@ def start_daemon(config: Config, foreground: bool = False) -> bool:
     daemon.run()
 
     return True
+
+
+def get_launchd_plist_path(user: bool = True) -> Path:
+    """Get the path to the launchd plist file.
+
+    Args:
+        user: If True, return user-level path, otherwise system-level.
+
+    Returns:
+        Path to the plist file.
+    """
+    plist_dir = (
+        Path.home() / "Library" / "LaunchAgents"
+        if user
+        else Path("/Library/LaunchDaemons")
+    )
+    return plist_dir / "com.ccjournal.daemon.plist"
+
+
+def get_systemd_service_path(user: bool = True) -> Path:
+    """Get the path to the systemd service file.
+
+    Args:
+        user: If True, return user-level path, otherwise system-level.
+
+    Returns:
+        Path to the service file.
+    """
+    systemd_dir = (
+        Path.home() / ".config" / "systemd" / "user"
+        if user
+        else Path("/etc/systemd/system")
+    )
+    return systemd_dir / "ccjournal.service"
+
+
+def get_default_log_path() -> Path:
+    """Get the default daemon log path.
+
+    Returns:
+        Path to the daemon log file.
+    """
+    return Path.home() / ".config" / "ccjournal" / "daemon.log"
+
+
+def generate_launchd_plist(ccjournal_path: str, log_path: Path) -> str:
+    """Generate launchd plist content.
+
+    Args:
+        ccjournal_path: Path to the ccjournal executable.
+        log_path: Path to the log file.
+
+    Returns:
+        Plist content as a string.
+    """
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ccjournal.daemon</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{ccjournal_path}</string>
+        <string>daemon</string>
+        <string>start</string>
+        <string>--foreground</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>{log_path}</string>
+    <key>StandardErrorPath</key>
+    <string>{log_path}</string>
+</dict>
+</plist>"""
+
+
+def generate_systemd_service(ccjournal_path: str, log_path: Path) -> str:
+    """Generate systemd service content.
+
+    Args:
+        ccjournal_path: Path to the ccjournal executable.
+        log_path: Path to the log file.
+
+    Returns:
+        Service file content as a string.
+    """
+    return f"""[Unit]
+Description=ccjournal - Claude Code conversation log sync daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart={ccjournal_path} daemon start --foreground
+Restart=on-failure
+RestartSec=10
+StandardOutput=append:{log_path}
+StandardError=append:{log_path}
+
+[Install]
+WantedBy=default.target
+"""

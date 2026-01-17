@@ -15,7 +15,16 @@ from .config import (
     get_pid_file_path,
     save_last_sync,
 )
-from .daemon import get_daemon_status, start_daemon, stop_daemon
+from .daemon import (
+    generate_launchd_plist,
+    generate_systemd_service,
+    get_daemon_status,
+    get_default_log_path,
+    get_launchd_plist_path,
+    get_systemd_service_path,
+    start_daemon,
+    stop_daemon,
+)
 from .sync import (
     PublicRepositoryError,
     RepositoryVisibility,
@@ -372,44 +381,12 @@ def daemon_install(ctx: click.Context, user: bool) -> None:
 
 def _install_launchd(ccjournal_path: str, _config: Config, user: bool) -> None:
     """Install launchd service on macOS."""
-    plist_name = "com.ccjournal.daemon.plist"
-    plist_dir = (
-        Path.home() / "Library" / "LaunchAgents"
-        if user
-        else Path("/Library/LaunchDaemons")
-    )
+    plist_path = get_launchd_plist_path(user)
+    log_path = get_default_log_path()
 
-    plist_path = plist_dir / plist_name
-    log_path = Path.home() / ".config" / "ccjournal" / "daemon.log"
-
-    # Ensure log directory exists
+    # Ensure directories exist
     log_path.parent.mkdir(parents=True, exist_ok=True)
-
-    plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.ccjournal.daemon</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>{ccjournal_path}</string>
-        <string>daemon</string>
-        <string>start</string>
-        <string>--foreground</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>{log_path}</string>
-    <key>StandardErrorPath</key>
-    <string>{log_path}</string>
-</dict>
-</plist>"""
-
-    plist_dir.mkdir(parents=True, exist_ok=True)
+    plist_path.parent.mkdir(parents=True, exist_ok=True)
 
     if plist_path.exists() and not click.confirm(
         f"Service file already exists at {plist_path}. Overwrite?"
@@ -417,7 +394,9 @@ def _install_launchd(ccjournal_path: str, _config: Config, user: bool) -> None:
         click.echo("Aborted.")
         return
 
+    plist_content = generate_launchd_plist(ccjournal_path, log_path)
     plist_path.write_text(plist_content)
+
     click.echo(f"Created {plist_path}")
     click.echo("")
     click.echo("To start the service:")
@@ -429,35 +408,12 @@ def _install_launchd(ccjournal_path: str, _config: Config, user: bool) -> None:
 
 def _install_systemd(ccjournal_path: str, _config: Config, user: bool) -> None:
     """Install systemd service on Linux."""
-    systemd_dir = (
-        Path.home() / ".config" / "systemd" / "user"
-        if user
-        else Path("/etc/systemd/system")
-    )
+    service_path = get_systemd_service_path(user)
+    log_path = get_default_log_path()
 
-    service_path = systemd_dir / "ccjournal.service"
-    log_path = Path.home() / ".config" / "ccjournal" / "daemon.log"
-
-    # Ensure log directory exists
+    # Ensure directories exist
     log_path.parent.mkdir(parents=True, exist_ok=True)
-
-    service_content = f"""[Unit]
-Description=ccjournal - Claude Code conversation log sync daemon
-After=network.target
-
-[Service]
-Type=simple
-ExecStart={ccjournal_path} daemon start --foreground
-Restart=on-failure
-RestartSec=10
-StandardOutput=append:{log_path}
-StandardError=append:{log_path}
-
-[Install]
-WantedBy=default.target
-"""
-
-    systemd_dir.mkdir(parents=True, exist_ok=True)
+    service_path.parent.mkdir(parents=True, exist_ok=True)
 
     if service_path.exists() and not click.confirm(
         f"Service file already exists at {service_path}. Overwrite?"
@@ -465,7 +421,9 @@ WantedBy=default.target
         click.echo("Aborted.")
         return
 
+    service_content = generate_systemd_service(ccjournal_path, log_path)
     service_path.write_text(service_content)
+
     click.echo(f"Created {service_path}")
     click.echo("")
 
