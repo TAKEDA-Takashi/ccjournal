@@ -29,6 +29,7 @@ class OutputConfig:
     branch: str = "main"
     auto_push: bool = True
     allow_public_repository: bool = False
+    allow_unknown_visibility: bool = False
 
 
 @dataclass
@@ -70,6 +71,7 @@ class Config:
             branch=output_data.get("branch", "main"),
             auto_push=output_data.get("auto_push", True),
             allow_public_repository=output_data.get("allow_public_repository", False),
+            allow_unknown_visibility=output_data.get("allow_unknown_visibility", False),
         )
 
         sync = SyncConfig(
@@ -93,6 +95,9 @@ branch = "{self.output.branch}"
 auto_push = {str(self.output.auto_push).lower()}
 # Security: Set to true only if you understand the risks of pushing logs to a public repository
 allow_public_repository = {str(self.output.allow_public_repository).lower()}
+# Security: Set to true to allow pushing when repository visibility cannot be determined
+# (e.g., non-GitHub repositories or when gh CLI is not available)
+allow_unknown_visibility = {str(self.output.allow_unknown_visibility).lower()}
 
 [sync]
 interval = {self.sync.interval}

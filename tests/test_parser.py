@@ -294,6 +294,80 @@ class TestCleanContent:
         assert result.strip() == ""
 
 
+class TestMaskSensitiveContent:
+    """Tests for mask_sensitive_content function."""
+
+    def test_mask_api_key(self) -> None:
+        """API keys should be masked."""
+        from ccjournal.parser import mask_sensitive_content
+
+        content = "api_key=sk-1234567890abcdefghijklmnop"
+        result = mask_sensitive_content(content)
+        assert "sk-1234567890abcdefghijklmnop" not in result
+        assert "REDACTED" in result or "API_KEY" in result
+
+    def test_mask_bearer_token(self) -> None:
+        """Bearer tokens should be masked."""
+        from ccjournal.parser import mask_sensitive_content
+
+        content = "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+        result = mask_sensitive_content(content)
+        assert "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9" not in result
+        assert "REDACTED" in result
+
+    def test_mask_aws_access_key(self) -> None:
+        """AWS access keys should be masked."""
+        from ccjournal.parser import mask_sensitive_content
+
+        content = "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE"
+        result = mask_sensitive_content(content)
+        assert "AKIAIOSFODNN7EXAMPLE" not in result
+        assert "AWS_KEY" in result
+
+    def test_mask_github_token(self) -> None:
+        """GitHub tokens should be masked."""
+        from ccjournal.parser import mask_sensitive_content
+
+        content = "GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        result = mask_sensitive_content(content)
+        assert "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" not in result
+        assert "GITHUB_TOKEN" in result
+
+    def test_mask_password(self) -> None:
+        """Passwords should be masked."""
+        from ccjournal.parser import mask_sensitive_content
+
+        content = "password=mysecretpassword123"
+        result = mask_sensitive_content(content)
+        assert "mysecretpassword123" not in result
+        assert "REDACTED" in result
+
+    def test_mask_export_secret(self) -> None:
+        """Exported secrets should be masked."""
+        from ccjournal.parser import mask_sensitive_content
+
+        content = "export API_KEY='my-secret-api-key-value'"
+        result = mask_sensitive_content(content)
+        assert "my-secret-api-key-value" not in result
+        assert "REDACTED" in result
+
+    def test_preserve_normal_content(self) -> None:
+        """Normal content without secrets should be preserved."""
+        from ccjournal.parser import mask_sensitive_content
+
+        content = "This is a normal message about coding"
+        result = mask_sensitive_content(content)
+        assert result == content
+
+    def test_mask_openai_key(self) -> None:
+        """OpenAI API keys should be masked."""
+        from ccjournal.parser import mask_sensitive_content
+
+        content = "openai.api_key = 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'"
+        result = mask_sensitive_content(content)
+        assert "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" not in result
+
+
 class TestParseSessionFile:
     """Tests for parse_session_file function."""
 

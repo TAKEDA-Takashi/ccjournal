@@ -19,7 +19,7 @@ from .daemon import get_daemon_status, start_daemon, stop_daemon
 from .sync import (
     PublicRepositoryError,
     RepositoryVisibility,
-    check_repository_visibility,
+    check_push_permission,
     git_commit_and_push,
     sync_logs,
 )
@@ -161,15 +161,19 @@ def sync(
 
         # Check repository visibility before pushing
         if auto_push:
-            visibility = check_repository_visibility(config.output.repository)
-            if visibility == RepositoryVisibility.PUBLIC:
-                if not config.output.allow_public_repository:
+            result = check_push_permission(
+                config.output.repository,
+                allow_public=config.output.allow_public_repository,
+                allow_unknown=config.output.allow_unknown_visibility,
+            )
+            if not result.allowed:
+                if result.visibility == RepositoryVisibility.PUBLIC:
                     raise PublicRepositoryError(config.output.repository)
-                click.echo(
-                    "\nWarning: Pushing to a PUBLIC repository. "
-                    "Ensure no sensitive information is included.",
-                    err=True,
-                )
+                # UNKNOWN visibility - don't push but continue with commit
+                click.echo(f"\nError: {result.warning_message}", err=True)
+                auto_push = False
+            elif result.warning_message:
+                click.echo(f"\nWarning: {result.warning_message}", err=True)
 
         success = git_commit_and_push(
             config.output.repository,
@@ -213,10 +217,12 @@ def config_show(ctx: click.Context) -> None:
     click.echo(f"  branch: {config.output.branch}")
     click.echo(f"  auto_push: {config.output.auto_push}")
     click.echo(f"  allow_public_repository: {config.output.allow_public_repository}")
+    click.echo(f"  allow_unknown_visibility: {config.output.allow_unknown_visibility}")
 
     click.echo("\n[sync]")
     click.echo(f"  interval: {config.sync.interval}")
     click.echo(f"  exclude_system: {config.sync.exclude_system}")
+    click.echo(f"  exclude_tool_messages: {config.sync.exclude_tool_messages}")
 
     if config.project_aliases:
         click.echo("\n[projects.aliases]")

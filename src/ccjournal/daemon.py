@@ -24,7 +24,11 @@ from .config import (
     save_last_commit_date,
     save_last_sync,
 )
-from .sync import git_commit_and_push, sync_logs
+from .sync import (
+    check_push_permission,
+    git_commit_and_push,
+    sync_logs,
+)
 
 
 def write_pid_file(path: Path, pid: int) -> None:
@@ -225,6 +229,30 @@ class DaemonProcess:
 
         return last_commit is None or last_commit != today
 
+    def _check_push_allowed(self) -> bool:
+        """Check if pushing to remote is allowed based on repository visibility.
+
+        Returns:
+            True if push is allowed, False otherwise.
+        """
+        if not self.config.output.auto_push:
+            return True  # Push is disabled anyway
+
+        result = check_push_permission(
+            self.config.output.repository,
+            allow_public=self.config.output.allow_public_repository,
+            allow_unknown=self.config.output.allow_unknown_visibility,
+        )
+
+        if not result.allowed:
+            self._log(result.warning_message or "Push not allowed", logging.ERROR)
+            return False
+
+        if result.warning_message:
+            self._log(result.warning_message, logging.WARNING)
+
+        return True
+
     def _do_sync(self) -> None:
         """Perform a single sync cycle."""
         try:
@@ -240,12 +268,13 @@ class DaemonProcess:
 
                 # Commit once per day
                 if self.should_commit():
+                    should_push = self._check_push_allowed()
                     self._log("Committing changes (daily commit)")
                     success = git_commit_and_push(
                         self.config.output.repository,
                         self.config.output.remote,
                         self.config.output.branch,
-                        auto_push=self.config.output.auto_push,
+                        auto_push=self.config.output.auto_push and should_push,
                     )
                     if success:
                         save_last_commit_date(date.today(), self.last_commit_path)

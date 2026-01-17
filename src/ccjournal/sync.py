@@ -42,6 +42,71 @@ class PublicRepositoryError(Exception):
         )
 
 
+@dataclass
+class PushPermissionResult:
+    """Result of push permission check."""
+
+    allowed: bool
+    visibility: RepositoryVisibility
+    warning_message: str | None = None
+
+
+def check_push_permission(
+    repo_path: Path,
+    allow_public: bool,
+    allow_unknown: bool,
+) -> PushPermissionResult:
+    """Check if pushing to remote is allowed based on repository visibility.
+
+    Args:
+        repo_path: Path to the repository
+        allow_public: Whether pushing to public repositories is allowed
+        allow_unknown: Whether pushing when visibility is unknown is allowed
+
+    Returns:
+        PushPermissionResult with allowed status, visibility, and optional warning
+    """
+    visibility = check_repository_visibility(repo_path)
+
+    if visibility == RepositoryVisibility.PUBLIC:
+        if not allow_public:
+            return PushPermissionResult(
+                allowed=False,
+                visibility=visibility,
+                warning_message=(
+                    "Refusing to push to public repository. "
+                    "Set 'allow_public_repository = true' to override."
+                ),
+            )
+        return PushPermissionResult(
+            allowed=True,
+            visibility=visibility,
+            warning_message=(
+                "Pushing to a PUBLIC repository. "
+                "Ensure no sensitive information is included."
+            ),
+        )
+
+    if visibility == RepositoryVisibility.UNKNOWN:
+        if not allow_unknown:
+            return PushPermissionResult(
+                allowed=False,
+                visibility=visibility,
+                warning_message=(
+                    "Repository visibility unknown (non-GitHub or gh CLI not available). "
+                    "Set 'allow_unknown_visibility = true' to push anyway."
+                ),
+            )
+        return PushPermissionResult(
+            allowed=True,
+            visibility=visibility,
+            warning_message="Repository visibility unknown. Proceeding with push.",
+        )
+
+    # PRIVATE - always allowed
+    return PushPermissionResult(allowed=True, visibility=visibility)
+
+
 def check_repository_visibility(repo_path: Path) -> RepositoryVisibility:
     """Check if a repository is public or private.
 

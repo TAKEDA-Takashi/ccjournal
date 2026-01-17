@@ -233,11 +233,52 @@ def is_tool_only_message(content: str) -> bool:
     return not cleaned.strip()
 
 
+def mask_sensitive_content(content: str) -> str:
+    """Mask potentially sensitive information in content.
+
+    Masks API keys, tokens, passwords, and other sensitive patterns.
+    """
+    # Common API key patterns
+    patterns = [
+        # Generic API keys/tokens (long alphanumeric strings that look like secrets)
+        (r"(?i)(api[_-]?key|apikey|secret[_-]?key|access[_-]?token|auth[_-]?token)"
+         r"\s*[=:]\s*['\"]?([a-zA-Z0-9_-]{20,})['\"]?",
+         r"\1=***REDACTED***"),
+        # Bearer tokens
+        (r"(?i)(Bearer\s+)([a-zA-Z0-9_.-]{20,})", r"\1***REDACTED***"),
+        # Authorization headers
+        (r"(?i)(Authorization['\"]?\s*[=:]\s*['\"]?)([^'\"\\n]{20,}?)(['\"])",
+         r"\1***REDACTED***\3"),
+        # AWS access keys (AKIA...)
+        (r"\b(AKIA[A-Z0-9]{16})\b", "***AWS_KEY***"),
+        # AWS secret keys (40 char base64-ish)
+        (r"(?i)(aws[_-]?secret[_-]?access[_-]?key\s*[=:]\s*['\"]?)([a-zA-Z0-9/+=]{40})",
+         r"\1***REDACTED***"),
+        # GitHub tokens
+        (r"\b(gh[ps]_[a-zA-Z0-9]{36,})\b", "***GITHUB_TOKEN***"),
+        (r"\b(github_pat_[a-zA-Z0-9_]{22,})\b", "***GITHUB_PAT***"),
+        # OpenAI/Anthropic API keys
+        (r"\b(sk-[a-zA-Z0-9]{20,})\b", "***API_KEY***"),
+        # Generic password patterns in config/env
+        (r"(?i)(password|passwd|pwd)\s*[=:]\s*['\"]?([^\s'\"]{8,})['\"]?",
+         r"\1=***REDACTED***"),
+        # Environment variable exports with sensitive values
+        (r"(?i)(export\s+)(API_KEY|SECRET|TOKEN|PASSWORD|PRIVATE_KEY)"
+         r"(\s*=\s*['\"]?)([^'\"\\n]{8,})(['\"]?)",
+         r"\1\2\3***REDACTED***\5"),
+    ]
+
+    for pattern, replacement in patterns:
+        content = re.sub(pattern, replacement, content)
+
+    return content
+
+
 def clean_content(content: str) -> str:
     """Clean content by removing or transforming XML-like tags.
 
     Transforms tags like <bash-input>cmd</bash-input> to readable format
-    and removes empty tags.
+    and removes empty tags. Also masks sensitive information.
     """
     # Tags to extract content from (display the inner text)
     extract_tags = [
@@ -263,6 +304,9 @@ def clean_content(content: str) -> str:
 
     # Remove any remaining empty XML-like tags
     content = re.sub(r"<[^>]+></[^>]+>", "", content)
+
+    # Mask sensitive information
+    content = mask_sensitive_content(content)
 
     # Clean up multiple newlines
     content = re.sub(r"\n{3,}", "\n\n", content)

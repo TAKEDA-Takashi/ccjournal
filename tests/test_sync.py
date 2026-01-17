@@ -10,6 +10,7 @@ from ccjournal.sync import (
     ProjectSession,
     PublicRepositoryError,
     RepositoryVisibility,
+    check_push_permission,
     check_repository_visibility,
     format_message_markdown,
     format_session_markdown,
@@ -293,3 +294,79 @@ class TestPublicRepositoryError:
 
         assert "/path/to/repo" in message
         assert "allow_public_repository" in message
+
+
+class TestCheckPushPermission:
+    """Tests for check_push_permission function."""
+
+    def test_private_repository_allowed(self, tmp_path: Path) -> None:
+        """Private repositories should always be allowed."""
+        with patch(
+            "ccjournal.sync.check_repository_visibility",
+            return_value=RepositoryVisibility.PRIVATE,
+        ):
+            result = check_push_permission(
+                tmp_path, allow_public=False, allow_unknown=False
+            )
+
+            assert result.allowed is True
+            assert result.visibility == RepositoryVisibility.PRIVATE
+            assert result.warning_message is None
+
+    def test_public_repository_blocked_by_default(self, tmp_path: Path) -> None:
+        """Public repositories should be blocked when allow_public=False."""
+        with patch(
+            "ccjournal.sync.check_repository_visibility",
+            return_value=RepositoryVisibility.PUBLIC,
+        ):
+            result = check_push_permission(
+                tmp_path, allow_public=False, allow_unknown=False
+            )
+
+            assert result.allowed is False
+            assert result.visibility == RepositoryVisibility.PUBLIC
+            assert result.warning_message is not None
+            assert "public repository" in result.warning_message.lower()
+
+    def test_public_repository_allowed_when_permitted(self, tmp_path: Path) -> None:
+        """Public repositories should be allowed when allow_public=True."""
+        with patch(
+            "ccjournal.sync.check_repository_visibility",
+            return_value=RepositoryVisibility.PUBLIC,
+        ):
+            result = check_push_permission(
+                tmp_path, allow_public=True, allow_unknown=False
+            )
+
+            assert result.allowed is True
+            assert result.visibility == RepositoryVisibility.PUBLIC
+            assert result.warning_message is not None  # Warning still shown
+
+    def test_unknown_visibility_blocked_by_default(self, tmp_path: Path) -> None:
+        """Unknown visibility should be blocked when allow_unknown=False."""
+        with patch(
+            "ccjournal.sync.check_repository_visibility",
+            return_value=RepositoryVisibility.UNKNOWN,
+        ):
+            result = check_push_permission(
+                tmp_path, allow_public=False, allow_unknown=False
+            )
+
+            assert result.allowed is False
+            assert result.visibility == RepositoryVisibility.UNKNOWN
+            assert result.warning_message is not None
+            assert "unknown" in result.warning_message.lower()
+
+    def test_unknown_visibility_allowed_when_permitted(self, tmp_path: Path) -> None:
+        """Unknown visibility should be allowed when allow_unknown=True."""
+        with patch(
+            "ccjournal.sync.check_repository_visibility",
+            return_value=RepositoryVisibility.UNKNOWN,
+        ):
+            result = check_push_permission(
+                tmp_path, allow_public=False, allow_unknown=True
+            )
+
+            assert result.allowed is True
+            assert result.visibility == RepositoryVisibility.UNKNOWN
+            assert result.warning_message is not None  # Warning still shown
