@@ -36,6 +36,7 @@ class SyncConfig:
 
     interval: int = 300  # seconds
     exclude_system: bool = True
+    exclude_tool_messages: bool = True
 
 
 @dataclass
@@ -72,6 +73,7 @@ class Config:
         sync = SyncConfig(
             interval=sync_data.get("interval", 300),
             exclude_system=sync_data.get("exclude_system", True),
+            exclude_tool_messages=sync_data.get("exclude_tool_messages", True),
         )
 
         return cls(output=output, sync=sync, project_aliases=aliases)
@@ -91,6 +93,7 @@ auto_push = {str(self.output.auto_push).lower()}
 [sync]
 interval = {self.sync.interval}
 exclude_system = {str(self.sync.exclude_system).lower()}
+exclude_tool_messages = {str(self.sync.exclude_tool_messages).lower()}
 
 [projects]
 # Project aliases (optional)

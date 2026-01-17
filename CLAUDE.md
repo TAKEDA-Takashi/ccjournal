@@ -103,6 +103,7 @@ auto_push = true
 [sync]
 interval = 3600
 exclude_system = true
+exclude_tool_messages = true  # [Tool: XXX] のみのメッセージを除外
 
 [project_aliases]
 "/path/to/project" = "my-project"

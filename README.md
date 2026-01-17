@@ -44,8 +44,9 @@ branch = "main"
 auto_push = true
 
 [sync]
-interval = 300        # seconds (for daemon)
-exclude_system = true # exclude system messages
+interval = 300              # seconds (for daemon)
+exclude_system = true       # exclude system messages
+exclude_tool_messages = true  # exclude [Tool: XXX] only messages
 ```
 
 ### Directory Structure

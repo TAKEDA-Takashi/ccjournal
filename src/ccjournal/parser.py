@@ -66,7 +66,7 @@ def _find_existing_path(parts: list[str], base: Path) -> Path:
     """Find the actual path by checking directory existence.
 
     Tries to reconstruct the original path by checking if directories exist.
-    When a directory doesn't exist with '/' separator, tries '.' then '-'.
+    Tests longer segment combinations first (e.g., "claude-code-journal" before "claude").
     """
     if not parts:
         return base
@@ -75,37 +75,36 @@ def _find_existing_path(parts: list[str], base: Path) -> Path:
     i = 0
 
     while i < len(parts):
-        segment = parts[i]
+        best_segment: str | None = None
+        best_end = i + 1
 
-        # Try to find the longest matching segment
-        best_match = segment
-        best_match_end = i + 1
+        # Try end positions from longest to shortest
+        for end in range(len(parts), i, -1):
+            segment_parts = parts[i:end]
 
-        j = i + 1
-        while j < len(parts):
-            # Try extending with '.' or '-'
-            test_with_dot = segment + "." + parts[j]
-            test_with_dash = segment + "-" + parts[j]
-
-            test_path_dot = base / "/".join(result_parts + [test_with_dot])
-            test_path_dash = base / "/".join(result_parts + [test_with_dash])
-
+            # Try joining with dots first (for domain names like github.com)
+            candidate_dot = ".".join(segment_parts)
+            test_path_dot = base / "/".join(result_parts + [candidate_dot])
             if test_path_dot.exists() and test_path_dot.is_dir():
-                segment = test_with_dot
-                best_match = segment
-                best_match_end = j + 1
-                j += 1
-            elif test_path_dash.exists() and test_path_dash.is_dir():
-                segment = test_with_dash
-                best_match = segment
-                best_match_end = j + 1
-                j += 1
-            else:
-                # No match found with extended segment
+                best_segment = candidate_dot
+                best_end = end
                 break
 
-        result_parts.append(best_match)
-        i = best_match_end
+            # Try joining with dashes (for project names like claude-code-journal)
+            candidate_dash = "-".join(segment_parts)
+            test_path_dash = base / "/".join(result_parts + [candidate_dash])
+            if test_path_dash.exists() and test_path_dash.is_dir():
+                best_segment = candidate_dash
+                best_end = end
+                break
+
+        if best_segment is None:
+            # No existing path found, use single segment
+            best_segment = parts[i]
+            best_end = i + 1
+
+        result_parts.append(best_segment)
+        i = best_end
 
     return base / "/".join(result_parts)
 
@@ -214,16 +213,67 @@ def is_system_message(content: str) -> bool:
     """Check if a message is a system message that should be excluded."""
     patterns = [
         r"<system-reminder>",
-        r"<local-command-",
+        r"<local-command-caveat>",
         r"</system-reminder>",
-        r"</local-command-",
+        r"</local-command-caveat>",
     ]
     return any(re.search(pattern, content) for pattern in patterns)
+
+
+def is_tool_only_message(content: str) -> bool:
+    """Check if a message contains only tool markers without meaningful text.
+
+    Returns True for messages like "[Tool: Read]" or "[Tool Result]" only.
+    Returns False if there's other text content.
+    """
+    # Remove all tool markers
+    cleaned = re.sub(r"\[Tool: [^\]]+\]", "", content)
+    cleaned = re.sub(r"\[Tool Result\]", "", cleaned)
+    # Check if anything meaningful remains
+    return not cleaned.strip()
+
+
+def clean_content(content: str) -> str:
+    """Clean content by removing or transforming XML-like tags.
+
+    Transforms tags like <bash-input>cmd</bash-input> to readable format
+    and removes empty tags.
+    """
+    # Tags to extract content from (display the inner text)
+    extract_tags = [
+        "command-name",
+        "command-message",
+        "command-args",
+        "bash-input",
+    ]
+    for tag in extract_tags:
+        # Replace <tag>content</tag> with just content
+        content = re.sub(rf"<{tag}>(.*?)</{tag}>", r"\1", content, flags=re.DOTALL)
+
+    # Tags to remove entirely (including content)
+    remove_tags = [
+        "bash-stdout",
+        "bash-stderr",
+        "local-command-stdout",
+        "local-command-output",
+    ]
+    for tag in remove_tags:
+        # Remove <tag>content</tag> entirely
+        content = re.sub(rf"<{tag}>.*?</{tag}>", "", content, flags=re.DOTALL)
+
+    # Remove any remaining empty XML-like tags
+    content = re.sub(r"<[^>]+></[^>]+>", "", content)
+
+    # Clean up multiple newlines
+    content = re.sub(r"\n{3,}", "\n\n", content)
+
+    return content.strip()
 
 
 def parse_session_file(
     file_path: Path,
     exclude_system: bool = True,
+    exclude_tool_messages: bool = True,
     date_filter: datetime | None = None,
 ) -> Iterator[Message]:
     """Parse a Claude Code session file (.jsonl).
@@ -231,6 +281,7 @@ def parse_session_file(
     Args:
         file_path: Path to the session file
         exclude_system: Whether to exclude system messages
+        exclude_tool_messages: Whether to exclude tool-only messages
         date_filter: If provided, only include messages from this date
 
     Yields:
@@ -273,7 +324,14 @@ def parse_session_file(
             if exclude_system and is_system_message(content):
                 continue
 
+            # Clean content (remove XML tags)
+            content = clean_content(content)
+
             if not content.strip():
+                continue
+
+            # Exclude tool-only messages
+            if exclude_tool_messages and is_tool_only_message(content):
                 continue
 
             yield Message(type=msg_type, timestamp=timestamp, content=content)

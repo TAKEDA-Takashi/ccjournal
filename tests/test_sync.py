@@ -90,6 +90,56 @@ class TestFormatSessionMarkdown:
 
         assert result == ""
 
+    def test_format_session_spanning_days(self) -> None:
+        """Session spanning multiple days should show (+N) indicator."""
+        session = ProjectSession(
+            session_id="abc12345",
+            project_name="my-project",
+            project_path=Path("/path/to/project"),
+            branch="main",
+            messages=[
+                Message(
+                    type="user",
+                    timestamp=datetime(2024, 1, 15, 22, 30, 0, tzinfo=UTC),
+                    content="Starting late",
+                ),
+                Message(
+                    type="assistant",
+                    timestamp=datetime(2024, 1, 16, 2, 45, 0, tzinfo=UTC),
+                    content="Still working",
+                ),
+            ],
+        )
+
+        result = format_session_markdown(session)
+
+        assert "22:30 - 02:45 (+1)" in result
+
+    def test_format_session_spanning_multiple_days(self) -> None:
+        """Session spanning multiple days should show (+N) indicator."""
+        session = ProjectSession(
+            session_id="abc12345",
+            project_name="my-project",
+            project_path=Path("/path/to/project"),
+            branch="main",
+            messages=[
+                Message(
+                    type="user",
+                    timestamp=datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
+                    content="Day 1",
+                ),
+                Message(
+                    type="assistant",
+                    timestamp=datetime(2024, 1, 17, 15, 45, 0, tzinfo=UTC),
+                    content="Day 3",
+                ),
+            ],
+        )
+
+        result = format_session_markdown(session)
+
+        assert "10:30 - 15:45 (+2)" in result
+
 
 class TestGenerateOutputPath:
     """Tests for generate_output_path function."""

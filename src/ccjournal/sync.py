@@ -89,6 +89,7 @@ def collect_sessions(
             parse_session_file(
                 session_file,
                 exclude_system=config.sync.exclude_system,
+                exclude_tool_messages=config.sync.exclude_tool_messages,
                 date_filter=date_filter,
             )
         )
@@ -130,11 +131,19 @@ def format_session_markdown(session: ProjectSession) -> str:
     if not session.messages:
         return ""
 
-    start_time = session.messages[0].timestamp.strftime("%H:%M")
-    end_time = session.messages[-1].timestamp.strftime("%H:%M")
+    start_ts = session.messages[0].timestamp
+    end_ts = session.messages[-1].timestamp
+    start_time = start_ts.strftime("%H:%M")
+    end_time = end_ts.strftime("%H:%M")
+
+    # Calculate day difference for sessions spanning multiple days
+    day_diff = (end_ts.date() - start_ts.date()).days
+    time_range = f"{start_time} - {end_time}"
+    if day_diff > 0:
+        time_range += f" (+{day_diff})"
 
     lines = [
-        f"## Session: {session.session_id[:8]} ({start_time} - {end_time})",
+        f"## Session: {session.session_id[:8]} ({time_range})",
     ]
 
     # Add metadata

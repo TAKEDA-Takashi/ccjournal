@@ -94,6 +94,24 @@ class TestDecodeProjectPath:
         # When path doesn't exist, uses simple '/' separation
         assert result == Path("/nonexistent/path/to/project")
 
+    def test_decode_path_with_multiple_dashes(self) -> None:
+        """Paths with multiple dashes in directory name (e.g., claude-code-journal)."""
+        import uuid
+
+        base = Path("/tmp") / f"ccjournal_test_{uuid.uuid4().hex[:8]}"
+        try:
+            (base / "ghq" / "github.com" / "user" / "claude-code-journal").mkdir(
+                parents=True
+            )
+
+            encoded = f"-tmp-{base.name}-ghq-github-com-user-claude-code-journal"
+            result = decode_project_path(encoded)
+            assert result == base / "ghq" / "github.com" / "user" / "claude-code-journal"
+        finally:
+            import shutil
+
+            shutil.rmtree(base, ignore_errors=True)
+
 
 class TestNormalizeRemoteUrl:
     """Tests for normalize_remote_url function."""
@@ -172,14 +190,108 @@ class TestIsSystemMessage:
         assert is_system_message(content) is True
 
     def test_local_command_tag(self) -> None:
-        """Messages with local-command tags should be detected."""
+        """Messages with local-command tags should be cleaned by clean_content."""
+        # local-command-output is handled by clean_content, not is_system_message
+        from ccjournal.parser import clean_content
+
         content = "<local-command-output>output</local-command-output>"
+        result = clean_content(content)
+        assert result == ""  # Content is removed entirely
+
+    def test_local_command_caveat_tag(self) -> None:
+        """Messages with local-command-caveat tags should be detected."""
+        content = "<local-command-caveat>Caveat: ...</local-command-caveat>"
         assert is_system_message(content) is True
 
     def test_normal_message(self) -> None:
         """Normal messages should not be flagged."""
         content = "Please help me fix this bug"
         assert is_system_message(content) is False
+
+
+class TestIsToolOnlyMessage:
+    """Tests for is_tool_only_message function."""
+
+    def test_tool_use_only(self) -> None:
+        """Messages with only [Tool: XXX] should be detected."""
+        from ccjournal.parser import is_tool_only_message
+
+        content = "[Tool: Read]"
+        assert is_tool_only_message(content) is True
+
+    def test_tool_result_only(self) -> None:
+        """Messages with only [Tool Result] should be detected."""
+        from ccjournal.parser import is_tool_only_message
+
+        content = "[Tool Result]"
+        assert is_tool_only_message(content) is True
+
+    def test_multiple_tools(self) -> None:
+        """Messages with multiple tools should be detected."""
+        from ccjournal.parser import is_tool_only_message
+
+        content = "[Tool: Read]\n[Tool: Glob]\n[Tool: Bash]"
+        assert is_tool_only_message(content) is True
+
+    def test_text_with_tool(self) -> None:
+        """Messages with text and tools should NOT be detected."""
+        from ccjournal.parser import is_tool_only_message
+
+        content = "Let me check the file.\n[Tool: Read]"
+        assert is_tool_only_message(content) is False
+
+    def test_normal_message(self) -> None:
+        """Normal messages should NOT be detected."""
+        from ccjournal.parser import is_tool_only_message
+
+        content = "This is a normal message"
+        assert is_tool_only_message(content) is False
+
+
+class TestCleanContent:
+    """Tests for clean_content function."""
+
+    def test_clean_command_tags(self) -> None:
+        """Command tags should be cleaned."""
+        from ccjournal.parser import clean_content
+
+        content = "<command-name>/commit</command-name>"
+        result = clean_content(content)
+        assert result == "/commit"
+
+    def test_clean_bash_tags(self) -> None:
+        """Bash tags should be cleaned to readable format."""
+        from ccjournal.parser import clean_content
+
+        content = "<bash-input>git status</bash-input>"
+        result = clean_content(content)
+        assert "git status" in result
+
+    def test_clean_mixed_content(self) -> None:
+        """Mixed content with tags and text should be cleaned."""
+        from ccjournal.parser import clean_content
+
+        content = "Running: <bash-input>npm test</bash-input>\nResult: success"
+        result = clean_content(content)
+        assert "npm test" in result
+        assert "Result: success" in result
+        assert "<bash-input>" not in result
+
+    def test_clean_preserves_normal_text(self) -> None:
+        """Normal text without tags should be preserved."""
+        from ccjournal.parser import clean_content
+
+        content = "This is a normal message"
+        result = clean_content(content)
+        assert result == "This is a normal message"
+
+    def test_clean_empty_tags(self) -> None:
+        """Empty tags should be removed."""
+        from ccjournal.parser import clean_content
+
+        content = "<bash-stdout></bash-stdout><bash-stderr></bash-stderr>"
+        result = clean_content(content)
+        assert result.strip() == ""
 
 
 class TestParseSessionFile:
