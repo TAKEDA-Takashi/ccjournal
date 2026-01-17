@@ -32,8 +32,13 @@ class ProjectSession:
 
 def discover_sessions(
     claude_projects_path: Path | None = None,
+    since: datetime | None = None,
 ) -> Iterator[tuple[Path, str, Path]]:
     """Discover all session files.
+
+    Args:
+        claude_projects_path: Path to Claude Code projects directory.
+        since: If provided, only yield files modified after this timestamp.
 
     Yields:
         Tuples of (session_file_path, session_id, project_path)
@@ -50,6 +55,14 @@ def discover_sessions(
         project_path = decode_project_path(project_dir.name)
 
         for session_file in project_dir.glob("*.jsonl"):
+            # Filter by modification time if since is provided
+            if since is not None:
+                mtime = datetime.fromtimestamp(
+                    session_file.stat().st_mtime, tz=since.tzinfo
+                )
+                if mtime <= since:
+                    continue
+
             session_id = session_file.stem
             yield session_file, session_id, project_path
 
@@ -57,19 +70,21 @@ def discover_sessions(
 def collect_sessions(
     config: Config,
     date_filter: datetime | None = None,
+    since: datetime | None = None,
 ) -> list[ProjectSession]:
     """Collect all sessions with their messages.
 
     Args:
         config: Application configuration
         date_filter: If provided, only include messages from this date
+        since: If provided, only include sessions from files modified after this timestamp
 
     Returns:
         List of ProjectSession objects
     """
     sessions = []
 
-    for session_file, session_id, project_path in discover_sessions():
+    for session_file, session_id, project_path in discover_sessions(since=since):
         messages = list(
             parse_session_file(
                 session_file,
@@ -203,6 +218,7 @@ def sync_logs(
     config: Config,
     date_filter: datetime | None = None,
     dry_run: bool = False,
+    since: datetime | None = None,
 ) -> list[Path]:
     """Sync conversation logs to the output repository.
 
@@ -210,11 +226,12 @@ def sync_logs(
         config: Application configuration
         date_filter: If provided, only sync logs from this date
         dry_run: If True, don't actually write files
+        since: If provided, only sync files modified after this timestamp
 
     Returns:
         List of paths that were written (or would be written in dry run)
     """
-    sessions = collect_sessions(config, date_filter)
+    sessions = collect_sessions(config, date_filter, since=since)
 
     if not sessions:
         return []

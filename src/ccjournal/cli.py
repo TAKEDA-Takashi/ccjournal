@@ -8,7 +8,14 @@ from pathlib import Path
 import click
 
 from . import __version__
-from .config import Config, get_default_config_path
+from .config import (
+    Config,
+    get_default_config_path,
+    get_last_sync,
+    get_pid_file_path,
+    save_last_sync,
+)
+from .daemon import get_daemon_status, start_daemon, stop_daemon
 from .sync import git_commit_and_push, sync_logs
 
 
@@ -90,6 +97,7 @@ def init(ctx: click.Context) -> None:
 @click.option("--date", "date_str", help="Sync logs from specific date (YYYY-MM-DD)")
 @click.option("--no-commit", is_flag=True, help="Don't commit changes to Git")
 @click.option("--no-push", is_flag=True, help="Don't push to remote")
+@click.option("--force", "-f", is_flag=True, help="Force full sync, ignore last sync timestamp")
 @click.pass_context
 def sync(
     ctx: click.Context,
@@ -97,8 +105,11 @@ def sync(
     date_str: str | None,
     no_commit: bool,
     no_push: bool,
+    force: bool,
 ) -> None:
     """Sync conversation logs to the output repository."""
+    from datetime import UTC
+
     config: Config = ctx.obj["config"]
 
     # Parse date filter
@@ -110,11 +121,22 @@ def sync(
             click.echo(f"Invalid date format: {date_str}. Use YYYY-MM-DD.", err=True)
             raise SystemExit(1) from None
 
+    # Get last sync timestamp (unless force or date filter is specified)
+    since = None
+    if not force and not date_str:
+        since = get_last_sync()
+        if since:
+            click.echo(f"Syncing files modified since {since.isoformat()}")
+
     if dry_run:
         click.echo("Dry run mode - no changes will be made\n")
 
     # Run sync
-    written_paths = sync_logs(config, date_filter=date_filter, dry_run=dry_run)
+    written_paths = sync_logs(config, date_filter=date_filter, dry_run=dry_run, since=since)
+
+    # Save current timestamp as last sync (unless dry run)
+    if not dry_run and written_paths:
+        save_last_sync(datetime.now(UTC))
 
     if not written_paths:
         click.echo("No logs to sync.")
@@ -227,78 +249,213 @@ def list_logs(ctx: click.Context, limit: int) -> None:
 
 
 @main.group()
-def daemon() -> None:
+@click.pass_context
+def daemon(ctx: click.Context) -> None:
     """Manage the sync daemon."""
     pass
 
 
 @daemon.command(name="start")
-def daemon_start() -> None:
+@click.option("--foreground", "-f", is_flag=True, help="Run in foreground instead of daemonizing")
+@click.pass_context
+def daemon_start(ctx: click.Context, foreground: bool) -> None:
     """Start the sync daemon in background."""
-    # TODO: Implement daemon functionality
-    click.echo("Daemon functionality not yet implemented.")
-    click.echo("For now, use 'ccjournal sync' with cron or launchd.")
+    config: Config = ctx.obj["config"]
+    status = get_daemon_status()
+
+    if status.running:
+        click.echo(f"Daemon is already running (PID: {status.pid})")
+        raise SystemExit(1)
+
+    if foreground:
+        click.echo("Starting daemon in foreground mode (Ctrl+C to stop)...")
+        start_daemon(config, foreground=True)
+    else:
+        # Print message before daemonizing since parent process exits
+        click.echo("Starting daemon in background...")
+        start_daemon(config, foreground=False)
 
 
 @daemon.command(name="stop")
 def daemon_stop() -> None:
     """Stop the sync daemon."""
-    click.echo("Daemon functionality not yet implemented.")
+    pid_path = get_pid_file_path()
+    status = get_daemon_status(pid_path)
+
+    if not status.running:
+        if status.pid is not None:
+            click.echo(f"Daemon not running (stale PID file: {status.pid})")
+        else:
+            click.echo("Daemon not running.")
+        raise SystemExit(1)
+
+    click.echo(f"Stopping daemon (PID: {status.pid})...")
+    if stop_daemon(pid_path):
+        click.echo("Daemon stopped.")
+    else:
+        click.echo("Failed to stop daemon.", err=True)
+        raise SystemExit(1)
 
 
 @daemon.command(name="status")
-def daemon_status() -> None:
+def daemon_status_cmd() -> None:
     """Show daemon status."""
-    click.echo("Daemon functionality not yet implemented.")
+    status = get_daemon_status()
+
+    if status.running:
+        click.echo(f"Daemon: running (PID: {status.pid})")
+    else:
+        click.echo("Daemon: not running")
+
+    if status.last_sync:
+        click.echo(f"Last sync: {status.last_sync.isoformat()}")
+    else:
+        click.echo("Last sync: never")
+
+    if status.last_commit:
+        click.echo(f"Last commit: {status.last_commit.isoformat()}")
+    else:
+        click.echo("Last commit: never")
 
 
 @daemon.command(name="install")
 @click.option("--user", is_flag=True, default=True, help="Install for current user only (default)")
-def daemon_install(user: bool) -> None:
+@click.pass_context
+def daemon_install(ctx: click.Context, user: bool) -> None:
     """Install daemon as system service (launchd/systemd)."""
     import platform
+    import shutil
 
+    config: Config = ctx.obj["config"]
     system = platform.system()
-    install_type = "user" if user else "system"
+
+    # Find ccjournal executable
+    ccjournal_path = shutil.which("ccjournal")
+    if not ccjournal_path:
+        click.echo("Warning: ccjournal not found in PATH, using default path", err=True)
+        ccjournal_path = "/usr/local/bin/ccjournal"
 
     if system == "Darwin":
-        click.echo(f"To set up automatic sync on macOS ({install_type} installation):")
-        click.echo("")
-        click.echo("1. Create ~/Library/LaunchAgents/com.ccjournal.sync.plist")
-        click.echo("2. Add the following content:")
-        click.echo("")
-        plist_content = """<?xml version="1.0" encoding="UTF-8"?>
+        _install_launchd(ccjournal_path, config, user)
+    elif system == "Linux":
+        _install_systemd(ccjournal_path, config, user)
+    else:
+        click.echo(f"Automatic setup not supported on {system}.")
+        click.echo("Use 'ccjournal daemon start' or schedule with your task scheduler.")
+
+
+def _install_launchd(ccjournal_path: str, _config: Config, user: bool) -> None:
+    """Install launchd service on macOS."""
+    plist_name = "com.ccjournal.daemon.plist"
+    plist_dir = (
+        Path.home() / "Library" / "LaunchAgents"
+        if user
+        else Path("/Library/LaunchDaemons")
+    )
+
+    plist_path = plist_dir / plist_name
+    log_path = Path.home() / ".config" / "ccjournal" / "daemon.log"
+
+    # Ensure log directory exists
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.ccjournal.sync</string>
+    <string>com.ccjournal.daemon</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/ccjournal</string>
-        <string>sync</string>
+        <string>{ccjournal_path}</string>
+        <string>daemon</string>
+        <string>start</string>
+        <string>--foreground</string>
     </array>
-    <key>StartInterval</key>
-    <integer>300</integer>
     <key>RunAtLoad</key>
     <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>{log_path}</string>
+    <key>StandardErrorPath</key>
+    <string>{log_path}</string>
 </dict>
 </plist>"""
-        click.echo(plist_content)
-        click.echo("")
-        click.echo("3. Load with: launchctl load ~/Library/LaunchAgents/com.ccjournal.sync.plist")
 
-    elif system == "Linux":
-        click.echo("To set up automatic sync on Linux, add to systemd:")
-        click.echo("")
-        click.echo("1. Create ~/.config/systemd/user/ccjournal.service")
-        click.echo("2. Create ~/.config/systemd/user/ccjournal.timer")
-        click.echo("")
-        click.echo("See documentation for details.")
+    plist_dir.mkdir(parents=True, exist_ok=True)
 
+    if plist_path.exists() and not click.confirm(
+        f"Service file already exists at {plist_path}. Overwrite?"
+    ):
+        click.echo("Aborted.")
+        return
+
+    plist_path.write_text(plist_content)
+    click.echo(f"Created {plist_path}")
+    click.echo("")
+    click.echo("To start the service:")
+    click.echo(f"  launchctl load {plist_path}")
+    click.echo("")
+    click.echo("To stop the service:")
+    click.echo(f"  launchctl unload {plist_path}")
+
+
+def _install_systemd(ccjournal_path: str, _config: Config, user: bool) -> None:
+    """Install systemd service on Linux."""
+    systemd_dir = (
+        Path.home() / ".config" / "systemd" / "user"
+        if user
+        else Path("/etc/systemd/system")
+    )
+
+    service_path = systemd_dir / "ccjournal.service"
+    log_path = Path.home() / ".config" / "ccjournal" / "daemon.log"
+
+    # Ensure log directory exists
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    service_content = f"""[Unit]
+Description=ccjournal - Claude Code conversation log sync daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart={ccjournal_path} daemon start --foreground
+Restart=on-failure
+RestartSec=10
+StandardOutput=append:{log_path}
+StandardError=append:{log_path}
+
+[Install]
+WantedBy=default.target
+"""
+
+    systemd_dir.mkdir(parents=True, exist_ok=True)
+
+    if service_path.exists() and not click.confirm(
+        f"Service file already exists at {service_path}. Overwrite?"
+    ):
+        click.echo("Aborted.")
+        return
+
+    service_path.write_text(service_content)
+    click.echo(f"Created {service_path}")
+    click.echo("")
+
+    if user:
+        click.echo("To enable and start the service:")
+        click.echo("  systemctl --user daemon-reload")
+        click.echo("  systemctl --user enable ccjournal")
+        click.echo("  systemctl --user start ccjournal")
+        click.echo("")
+        click.echo("To check status:")
+        click.echo("  systemctl --user status ccjournal")
     else:
-        click.echo(f"Automatic setup not supported on {system}.")
-        click.echo("Use cron or task scheduler to run 'ccjournal sync' periodically.")
+        click.echo("To enable and start the service:")
+        click.echo("  sudo systemctl daemon-reload")
+        click.echo("  sudo systemctl enable ccjournal")
+        click.echo("  sudo systemctl start ccjournal")
 
 
 if __name__ == "__main__":
