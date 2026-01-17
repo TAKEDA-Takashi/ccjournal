@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 from collections import defaultdict
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 
 from .config import Config, get_claude_projects_path
@@ -17,6 +19,85 @@ from .parser import (
     get_git_branch,
     parse_session_file,
 )
+
+
+class RepositoryVisibility(Enum):
+    """Repository visibility status."""
+
+    PUBLIC = "public"
+    PRIVATE = "private"
+    UNKNOWN = "unknown"
+
+
+class PublicRepositoryError(Exception):
+    """Error raised when attempting to push to a public repository without explicit permission."""
+
+    def __init__(self, repo_path: Path) -> None:
+        self.repo_path = repo_path
+        super().__init__(
+            f"Refusing to push to public repository: {repo_path}\n"
+            f"Session logs may contain sensitive information.\n"
+            f"To allow pushing to a public repository, set 'allow_public_repository = true' "
+            f"in your config file (~/.config/ccjournal/config.toml)."
+        )
+
+
+def check_repository_visibility(repo_path: Path) -> RepositoryVisibility:
+    """Check if a repository is public or private.
+
+    Uses GitHub CLI (gh) to determine repository visibility.
+    Only works for GitHub repositories.
+
+    Args:
+        repo_path: Path to the Git repository
+
+    Returns:
+        RepositoryVisibility indicating public, private, or unknown
+    """
+    # Get remote URL
+    try:
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            return RepositoryVisibility.UNKNOWN
+        remote_url = result.stdout.strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return RepositoryVisibility.UNKNOWN
+
+    # Check if it's a GitHub repository
+    if not _is_github_url(remote_url):
+        return RepositoryVisibility.UNKNOWN
+
+    # Use gh CLI to check visibility
+    try:
+        result = subprocess.run(
+            ["gh", "repo", "view", "--json", "isPrivate", "--jq", ".isPrivate"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return RepositoryVisibility.UNKNOWN
+
+        is_private = result.stdout.strip().lower() == "true"
+        return RepositoryVisibility.PRIVATE if is_private else RepositoryVisibility.PUBLIC
+
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return RepositoryVisibility.UNKNOWN
+
+
+def _is_github_url(url: str) -> bool:
+    """Check if a URL is a GitHub repository URL."""
+    patterns = [
+        r"github\.com[:/]",  # Matches github.com: (SSH) or github.com/ (HTTPS)
+    ]
+    return any(re.search(pattern, url) for pattern in patterns)
 
 
 @dataclass

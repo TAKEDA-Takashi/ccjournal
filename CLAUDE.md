@@ -78,6 +78,8 @@ Git コミット・プッシュ
 - **sync.py**: 同期ロジック
   - `generate_output_path()`: 出力パス生成
   - `sync_logs()`: メイン同期処理
+  - `check_repository_visibility()`: GitHub リポジトリの public/private 判定
+  - `PublicRepositoryError`: public リポジトリへの push 拒否時の例外
 
 - **cli.py**: CLI コマンド
   - `init`: インタラクティブ設定
@@ -99,6 +101,7 @@ ccjournal = "ccjournal.cli:main"
 repository = "~/ccjournal-logs"
 structure = "date"  # "date" or "project"
 auto_push = true
+allow_public_repository = false  # public リポジトリへの push をブロック
 
 [sync]
 interval = 3600
@@ -108,3 +111,10 @@ exclude_tool_messages = true  # [Tool: XXX] のみのメッセージを除外
 [project_aliases]
 "/path/to/project" = "my-project"
 ```
+
+## セキュリティ
+
+- **public リポジトリ保護**: デフォルトで public リポジトリへの push をブロック
+  - GitHub CLI (`gh`) でリポジトリの visibility を検出
+  - `allow_public_repository = true` で明示的に許可可能
+  - セッションログには機密情報（APIキー、社内URL等）が含まれる可能性があるため

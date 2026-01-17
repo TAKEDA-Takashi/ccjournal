@@ -28,6 +28,7 @@ class OutputConfig:
     remote: str = "origin"
     branch: str = "main"
     auto_push: bool = True
+    allow_public_repository: bool = False
 
 
 @dataclass
@@ -68,6 +69,7 @@ class Config:
             remote=output_data.get("remote", "origin"),
             branch=output_data.get("branch", "main"),
             auto_push=output_data.get("auto_push", True),
+            allow_public_repository=output_data.get("allow_public_repository", False),
         )
 
         sync = SyncConfig(
@@ -89,6 +91,8 @@ structure = "{self.output.structure}"
 remote = "{self.output.remote}"
 branch = "{self.output.branch}"
 auto_push = {str(self.output.auto_push).lower()}
+# Security: Set to true only if you understand the risks of pushing logs to a public repository
+allow_public_repository = {str(self.output.allow_public_repository).lower()}
 
 [sync]
 interval = {self.sync.interval}

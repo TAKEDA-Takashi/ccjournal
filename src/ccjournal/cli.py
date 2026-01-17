@@ -16,7 +16,13 @@ from .config import (
     save_last_sync,
 )
 from .daemon import get_daemon_status, start_daemon, stop_daemon
-from .sync import git_commit_and_push, sync_logs
+from .sync import (
+    PublicRepositoryError,
+    RepositoryVisibility,
+    check_repository_visibility,
+    git_commit_and_push,
+    sync_logs,
+)
 
 
 @click.group()
@@ -152,6 +158,19 @@ def sync(
     # Git operations
     if not no_commit:
         auto_push = config.output.auto_push and not no_push
+
+        # Check repository visibility before pushing
+        if auto_push:
+            visibility = check_repository_visibility(config.output.repository)
+            if visibility == RepositoryVisibility.PUBLIC:
+                if not config.output.allow_public_repository:
+                    raise PublicRepositoryError(config.output.repository)
+                click.echo(
+                    "\nWarning: Pushing to a PUBLIC repository. "
+                    "Ensure no sensitive information is included.",
+                    err=True,
+                )
+
         success = git_commit_and_push(
             config.output.repository,
             config.output.remote,
@@ -193,6 +212,7 @@ def config_show(ctx: click.Context) -> None:
     click.echo(f"  remote: {config.output.remote}")
     click.echo(f"  branch: {config.output.branch}")
     click.echo(f"  auto_push: {config.output.auto_push}")
+    click.echo(f"  allow_public_repository: {config.output.allow_public_repository}")
 
     click.echo("\n[sync]")
     click.echo(f"  interval: {config.sync.interval}")

@@ -2,11 +2,15 @@
 
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import patch
 
 from ccjournal.config import Config
 from ccjournal.parser import Message
 from ccjournal.sync import (
     ProjectSession,
+    PublicRepositoryError,
+    RepositoryVisibility,
+    check_repository_visibility,
     format_message_markdown,
     format_session_markdown,
     generate_output_path,
@@ -212,3 +216,80 @@ class TestWriteMarkdownFile:
         content = output_path.read_text()
         assert "# my-project - 2024-01-15" in content
         assert "Hello" in content
+
+
+class TestCheckRepositoryVisibility:
+    """Tests for check_repository_visibility function."""
+
+    def test_private_repository(self, tmp_path: Path) -> None:
+        """Private GitHub repository should return PRIVATE."""
+        with patch("ccjournal.sync.subprocess.run") as mock_run:
+            mock_remote = type(
+                "Result", (), {"returncode": 0, "stdout": "git@github.com:user/repo.git\n"}
+            )()
+            mock_gh = type("Result", (), {"returncode": 0, "stdout": "true\n"})()
+            mock_run.side_effect = [mock_remote, mock_gh]
+
+            result = check_repository_visibility(tmp_path)
+
+            assert result == RepositoryVisibility.PRIVATE
+
+    def test_public_repository(self, tmp_path: Path) -> None:
+        """Public GitHub repository should return PUBLIC."""
+        with patch("ccjournal.sync.subprocess.run") as mock_run:
+            mock_remote = type(
+                "Result", (), {"returncode": 0, "stdout": "https://github.com/user/repo.git\n"}
+            )()
+            mock_gh = type("Result", (), {"returncode": 0, "stdout": "false\n"})()
+            mock_run.side_effect = [mock_remote, mock_gh]
+
+            result = check_repository_visibility(tmp_path)
+
+            assert result == RepositoryVisibility.PUBLIC
+
+    def test_non_github_repository(self, tmp_path: Path) -> None:
+        """Non-GitHub repository should return UNKNOWN."""
+        with patch("ccjournal.sync.subprocess.run") as mock_run:
+            mock_remote = type(
+                "Result", (), {"returncode": 0, "stdout": "git@gitlab.com:user/repo.git\n"}
+            )()
+            mock_run.return_value = mock_remote
+
+            result = check_repository_visibility(tmp_path)
+
+            assert result == RepositoryVisibility.UNKNOWN
+
+    def test_no_remote(self, tmp_path: Path) -> None:
+        """Repository without remote should return UNKNOWN."""
+        with patch("ccjournal.sync.subprocess.run") as mock_run:
+            mock_run.return_value = type("Result", (), {"returncode": 1, "stdout": ""})()
+
+            result = check_repository_visibility(tmp_path)
+
+            assert result == RepositoryVisibility.UNKNOWN
+
+    def test_gh_command_fails(self, tmp_path: Path) -> None:
+        """If gh command fails, should return UNKNOWN."""
+        with patch("ccjournal.sync.subprocess.run") as mock_run:
+            mock_remote = type(
+                "Result", (), {"returncode": 0, "stdout": "git@github.com:user/repo.git\n"}
+            )()
+            mock_gh = type("Result", (), {"returncode": 1, "stdout": ""})()
+            mock_run.side_effect = [mock_remote, mock_gh]
+
+            result = check_repository_visibility(tmp_path)
+
+            assert result == RepositoryVisibility.UNKNOWN
+
+
+class TestPublicRepositoryError:
+    """Tests for PublicRepositoryError."""
+
+    def test_error_message(self) -> None:
+        """Error message should include repository path and setting instructions."""
+        error = PublicRepositoryError(Path("/path/to/repo"))
+
+        message = str(error)
+
+        assert "/path/to/repo" in message
+        assert "allow_public_repository" in message
