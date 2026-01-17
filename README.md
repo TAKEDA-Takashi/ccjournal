@@ -2,6 +2,8 @@
 
 Sync Claude Code conversation logs to a Git repository.
 
+[日本語](README_ja.md)
+
 ## Prerequisites
 
 ### Required
@@ -47,24 +49,38 @@ ccjournal config show
 
 ## Configuration
 
-Configuration file is located at `~/.config/ccjournal/config.toml`:
+Configuration file is located at `~/.config/ccjournal/config.toml`.
+
+**Quick reference:**
 
 ```toml
 [output]
 repository = "~/Documents/claude-logs"
-structure = "date"    # "date" or "project"
-remote = "origin"
-branch = "main"
+structure = "date"                    # "date" or "project"
 auto_push = true
-allow_public_repository = false  # Security: block push to public repos
+allow_public_repository = false       # Security: block push to public repos
+allow_unknown_visibility = false      # Security: block push when visibility unknown
 
 [sync]
-interval = 300              # seconds (for daemon)
-exclude_system = true       # exclude system messages
-exclude_tool_messages = true  # exclude [Tool: XXX] only messages
+interval = 300                        # seconds (for daemon)
+exclude_system = true                 # exclude system messages
+exclude_tool_messages = true          # exclude [Tool: XXX] only messages
+
+[projects.aliases]
+"/path/to/project" = "custom-name"    # optional: customize project names
 ```
 
+For complete configuration reference, see **[docs/configuration.md](docs/configuration.md)**.
+
 ## Security
+
+### Fail-Safe Design
+
+ccjournal includes multiple security layers to prevent accidental exposure of sensitive information:
+
+1. **Public repository protection** - Blocks push to public repositories by default
+2. **Unknown visibility protection** - Blocks push when visibility cannot be determined (non-GitHub repos)
+3. **Sensitive data masking** - Automatically masks API keys, tokens, passwords in output
 
 ### Public Repository Protection
 
@@ -78,18 +94,9 @@ If the output repository is detected as public on GitHub, the sync will fail wit
 
 ```
 Error: Refusing to push to public repository: /path/to/repo
-Session logs may contain sensitive information.
-To allow pushing to a public repository, set 'allow_public_repository = true' in your config file.
 ```
 
-To allow pushing to a public repository (use with caution):
-
-```toml
-[output]
-allow_public_repository = true
-```
-
-**Note:** Public repository detection requires GitHub CLI (`gh`) to be installed and authenticated. For non-GitHub repositories or when `gh` is unavailable, this check is skipped.
+**Note:** Public repository detection requires GitHub CLI (`gh`). For non-GitHub repositories, set `allow_unknown_visibility = true` after confirming the repository is private.
 
 ### Directory Structure
 
