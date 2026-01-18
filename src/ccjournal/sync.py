@@ -311,6 +311,41 @@ def format_session_markdown(session: ProjectSession) -> str:
     return "\n".join(lines)
 
 
+def split_session_by_date(session: ProjectSession) -> dict[datetime, ProjectSession]:
+    """Split a session into multiple sessions by date.
+
+    If a session spans multiple days, this function splits it so that
+    each day has a separate ProjectSession with only messages from that day.
+
+    Args:
+        session: The session to split
+
+    Returns:
+        Dictionary mapping date (midnight datetime) to ProjectSession
+    """
+    if not session.messages:
+        return {}
+
+    grouped: dict[datetime, list[Message]] = defaultdict(list)
+
+    for msg in session.messages:
+        # Get date at midnight with the same timezone
+        date_key = msg.timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
+        grouped[date_key].append(msg)
+
+    result: dict[datetime, ProjectSession] = {}
+    for date_key, messages in grouped.items():
+        result[date_key] = ProjectSession(
+            session_id=session.session_id,
+            project_name=session.project_name,
+            project_path=session.project_path,
+            branch=session.branch,
+            messages=messages,
+        )
+
+    return result
+
+
 def generate_output_path(
     config: Config,
     project_name: str,
@@ -391,14 +426,12 @@ def sync_logs(
     if not sessions:
         return []
 
-    # Group sessions by (project_name, date)
+    # Group sessions by (project_name, date), splitting sessions that span multiple days
     grouped: dict[tuple[str, datetime], list[ProjectSession]] = defaultdict(list)
     for session in sessions:
-        if session.messages:
-            date = session.messages[0].timestamp.replace(
-                hour=0, minute=0, second=0, microsecond=0
-            )
-            grouped[(session.project_name, date)].append(session)
+        split_sessions = split_session_by_date(session)
+        for date, split_session in split_sessions.items():
+            grouped[(session.project_name, date)].append(split_session)
 
     written_paths = []
     for (project_name, date), project_sessions in grouped.items():

@@ -15,6 +15,7 @@ from ccjournal.sync import (
     format_message_markdown,
     format_session_markdown,
     generate_output_path,
+    split_session_by_date,
     write_markdown_file,
 )
 
@@ -370,3 +371,157 @@ class TestCheckPushPermission:
             assert result.allowed is True
             assert result.visibility == RepositoryVisibility.UNKNOWN
             assert result.warning_message is not None  # Warning still shown
+
+
+class TestSplitSessionByDate:
+    """Tests for split_session_by_date function."""
+
+    def test_single_day_session(self) -> None:
+        """Session within a single day should not be split."""
+        session = ProjectSession(
+            session_id="abc12345",
+            project_name="my-project",
+            project_path=Path("/path/to/project"),
+            branch="main",
+            messages=[
+                Message(
+                    type="user",
+                    timestamp=datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
+                    content="Hello",
+                ),
+                Message(
+                    type="assistant",
+                    timestamp=datetime(2024, 1, 15, 10, 45, 0, tzinfo=UTC),
+                    content="Hi",
+                ),
+            ],
+        )
+
+        result = split_session_by_date(session)
+
+        assert len(result) == 1
+        date_key = datetime(2024, 1, 15, 0, 0, 0, tzinfo=UTC)
+        assert date_key in result
+        assert len(result[date_key].messages) == 2
+
+    def test_session_spanning_two_days(self) -> None:
+        """Session spanning two days should be split by date."""
+        session = ProjectSession(
+            session_id="abc12345",
+            project_name="my-project",
+            project_path=Path("/path/to/project"),
+            branch="main",
+            messages=[
+                Message(
+                    type="user",
+                    timestamp=datetime(2024, 1, 15, 23, 30, 0, tzinfo=UTC),
+                    content="Day 1 message",
+                ),
+                Message(
+                    type="assistant",
+                    timestamp=datetime(2024, 1, 15, 23, 45, 0, tzinfo=UTC),
+                    content="Day 1 response",
+                ),
+                Message(
+                    type="user",
+                    timestamp=datetime(2024, 1, 16, 0, 15, 0, tzinfo=UTC),
+                    content="Day 2 message",
+                ),
+                Message(
+                    type="assistant",
+                    timestamp=datetime(2024, 1, 16, 0, 30, 0, tzinfo=UTC),
+                    content="Day 2 response",
+                ),
+            ],
+        )
+
+        result = split_session_by_date(session)
+
+        assert len(result) == 2
+
+        day1 = datetime(2024, 1, 15, 0, 0, 0, tzinfo=UTC)
+        day2 = datetime(2024, 1, 16, 0, 0, 0, tzinfo=UTC)
+
+        assert day1 in result
+        assert day2 in result
+
+        assert len(result[day1].messages) == 2
+        assert result[day1].messages[0].content == "Day 1 message"
+        assert result[day1].messages[1].content == "Day 1 response"
+
+        assert len(result[day2].messages) == 2
+        assert result[day2].messages[0].content == "Day 2 message"
+        assert result[day2].messages[1].content == "Day 2 response"
+
+    def test_session_spanning_multiple_days(self) -> None:
+        """Session spanning multiple days should create separate entries."""
+        session = ProjectSession(
+            session_id="abc12345",
+            project_name="my-project",
+            project_path=Path("/path/to/project"),
+            branch="main",
+            messages=[
+                Message(
+                    type="user",
+                    timestamp=datetime(2024, 1, 15, 10, 0, 0, tzinfo=UTC),
+                    content="Day 1",
+                ),
+                Message(
+                    type="user",
+                    timestamp=datetime(2024, 1, 16, 10, 0, 0, tzinfo=UTC),
+                    content="Day 2",
+                ),
+                Message(
+                    type="user",
+                    timestamp=datetime(2024, 1, 17, 10, 0, 0, tzinfo=UTC),
+                    content="Day 3",
+                ),
+            ],
+        )
+
+        result = split_session_by_date(session)
+
+        assert len(result) == 3
+
+    def test_split_preserves_session_metadata(self) -> None:
+        """Split sessions should preserve original session metadata."""
+        session = ProjectSession(
+            session_id="abc12345",
+            project_name="my-project",
+            project_path=Path("/path/to/project"),
+            branch="feature-branch",
+            messages=[
+                Message(
+                    type="user",
+                    timestamp=datetime(2024, 1, 15, 23, 30, 0, tzinfo=UTC),
+                    content="Day 1",
+                ),
+                Message(
+                    type="user",
+                    timestamp=datetime(2024, 1, 16, 0, 30, 0, tzinfo=UTC),
+                    content="Day 2",
+                ),
+            ],
+        )
+
+        result = split_session_by_date(session)
+
+        for split_session in result.values():
+            assert split_session.session_id == "abc12345"
+            assert split_session.project_name == "my-project"
+            assert split_session.project_path == Path("/path/to/project")
+            assert split_session.branch == "feature-branch"
+
+    def test_empty_session(self) -> None:
+        """Empty session should return empty dict."""
+        session = ProjectSession(
+            session_id="abc12345",
+            project_name="my-project",
+            project_path=Path("/path/to/project"),
+            branch=None,
+            messages=[],
+        )
+
+        result = split_session_by_date(session)
+
+        assert len(result) == 0
