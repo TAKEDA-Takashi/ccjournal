@@ -1,0 +1,73 @@
+name: Publish to PyPI
+
+on:
+  push:
+    tags:
+      - 'v*' # v0.1.0, v1.0.0 などのタグにマッチ
+  workflow_dispatch: # 手動実行を可能にする
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # PyPI Trusted Publishing用
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: |
+          uv venv --python 3.11
+          uv sync --extra dev
+
+      - name: Run checks
+        run: |
+          npx pyright
+          uv run ruff check
+          uv run pytest
+
+      - name: Build
+        run: uv build
+
+      # ビルド後のパッケージ確認
+      - name: Verify build artifacts
+        run: |
+          ls -la dist/
+          PACKAGE_VERSION=$(uv run python -c "import ccjournal; print(ccjournal.__version__)")
+          echo "Package version: $PACKAGE_VERSION"
+
+      # タグとpyproject.tomlのバージョンが一致しているか確認
+      - name: Check version consistency
+        if: github.event_name == 'push'
+        run: |
+          PACKAGE_VERSION="v$(uv run python -c "import ccjournal; print(ccjournal.__version__)")"
+          TAG_VERSION="${{ github.ref_name }}"
+          if [ "$PACKAGE_VERSION" != "$TAG_VERSION" ]; then
+            echo "Error: Tag version ($TAG_VERSION) doesn't match package version ($PACKAGE_VERSION)"
+            exit 1
+          fi
+          echo "Version check passed: $PACKAGE_VERSION"
+
+      # 手動実行時のバージョン確認
+      - name: Display version (manual trigger)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          PACKAGE_VERSION="v$(uv run python -c "import ccjournal; print(ccjournal.__version__)")"
+          echo "Publishing version: $PACKAGE_VERSION"
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        # Trusted Publishing を使用するため、パスワード設定不要
+        # PyPI側でGitHub Actionsを Trusted Publisher として設定する必要あり

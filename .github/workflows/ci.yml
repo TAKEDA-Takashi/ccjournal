@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12', '3.13', '3.14']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: |
+          uv venv --python ${{ matrix.python-version }}
+          uv sync --extra dev
+
+      - name: Run type check
+        run: npx pyright
+
+      - name: Run lint
+        run: uv run ruff check
+
+      - name: Run tests
+        run: uv run pytest
+
+  # すべてのテストが成功したことを確認するためのジョブ
+  # ブランチ保護ルールで必須チェックとして使用
+  all-tests-pass:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: All tests passed
+        run: echo "All tests passed!"
