@@ -481,3 +481,19 @@ StandardError=append:{log_path}
 [Install]
 WantedBy=default.target
 """
+
+
+def uninstall_service(service_path: Path) -> bool:
+    """Remove a service file.
+
+    Args:
+        service_path: Path to the service file to remove.
+
+    Returns:
+        True if the file was removed, False if it didn't exist.
+    """
+    if not service_path.exists():
+        return False
+
+    service_path.unlink()
+    return True

@@ -24,6 +24,7 @@ from .daemon import (
     get_systemd_service_path,
     start_daemon,
     stop_daemon,
+    uninstall_service,
 )
 from .sync import (
     PublicRepositoryError,
@@ -440,6 +441,88 @@ def _install_systemd(ccjournal_path: str, _config: Config, user: bool) -> None:
         click.echo("  sudo systemctl daemon-reload")
         click.echo("  sudo systemctl enable ccjournal")
         click.echo("  sudo systemctl start ccjournal")
+
+
+@daemon.command(name="uninstall")
+@click.option("--user", is_flag=True, default=True, help="Uninstall user service (default)")
+def daemon_uninstall(user: bool) -> None:
+    """Uninstall daemon service (launchd/systemd)."""
+    import platform
+
+    system = platform.system()
+
+    # Stop the daemon first
+    pid_path = get_pid_file_path()
+    status = get_daemon_status(pid_path)
+    if status.running:
+        click.echo("Stopping daemon...")
+        if stop_daemon(pid_path):
+            click.echo("Daemon stopped.")
+        else:
+            click.echo("Warning: Failed to stop daemon.", err=True)
+
+    if system == "Darwin":
+        _uninstall_launchd(user)
+    elif system == "Linux":
+        _uninstall_systemd(user)
+    else:
+        click.echo(f"Automatic uninstall not supported on {system}.")
+
+
+def _uninstall_launchd(user: bool) -> None:
+    """Uninstall launchd service on macOS."""
+    plist_path = get_launchd_plist_path(user)
+
+    if not plist_path.exists():
+        click.echo(f"Service file not found: {plist_path}")
+        return
+
+    # Suggest unloading first
+    click.echo("To unload the service first (if loaded):")
+    click.echo(f"  launchctl unload {plist_path}")
+    click.echo("")
+
+    if not click.confirm(f"Remove service file {plist_path}?"):
+        click.echo("Aborted.")
+        return
+
+    if uninstall_service(plist_path):
+        click.echo(f"Removed {plist_path}")
+    else:
+        click.echo(f"Failed to remove {plist_path}", err=True)
+
+
+def _uninstall_systemd(user: bool) -> None:
+    """Uninstall systemd service on Linux."""
+    service_path = get_systemd_service_path(user)
+
+    if not service_path.exists():
+        click.echo(f"Service file not found: {service_path}")
+        return
+
+    # Suggest stopping and disabling first
+    if user:
+        click.echo("To stop and disable the service first:")
+        click.echo("  systemctl --user stop ccjournal")
+        click.echo("  systemctl --user disable ccjournal")
+    else:
+        click.echo("To stop and disable the service first:")
+        click.echo("  sudo systemctl stop ccjournal")
+        click.echo("  sudo systemctl disable ccjournal")
+    click.echo("")
+
+    if not click.confirm(f"Remove service file {service_path}?"):
+        click.echo("Aborted.")
+        return
+
+    if uninstall_service(service_path):
+        click.echo(f"Removed {service_path}")
+        if user:
+            click.echo("Run 'systemctl --user daemon-reload' to reload systemd.")
+        else:
+            click.echo("Run 'sudo systemctl daemon-reload' to reload systemd.")
+    else:
+        click.echo(f"Failed to remove {service_path}", err=True)
 
 
 if __name__ == "__main__":

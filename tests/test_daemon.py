@@ -18,6 +18,7 @@ from ccjournal.daemon import (
     is_process_running,
     read_pid_file,
     stop_daemon,
+    uninstall_service,
     write_pid_file,
 )
 
@@ -355,3 +356,37 @@ class TestGenerateSystemdService:
         assert content1 != content2
         assert "/path/one" in content1
         assert "/path/two" in content2
+
+
+class TestUninstallService:
+    """Tests for uninstall_service function."""
+
+    def test_uninstall_removes_existing_file(self, tmp_path: Path) -> None:
+        """uninstall_service removes the service file if it exists."""
+        service_file = tmp_path / "test.plist"
+        service_file.write_text("dummy content")
+
+        result = uninstall_service(service_file)
+
+        assert result is True
+        assert not service_file.exists()
+
+    def test_uninstall_nonexistent_file(self, tmp_path: Path) -> None:
+        """uninstall_service returns False if file doesn't exist."""
+        service_file = tmp_path / "nonexistent.plist"
+
+        result = uninstall_service(service_file)
+
+        assert result is False
+
+    def test_uninstall_returns_removed_path(self, tmp_path: Path) -> None:
+        """uninstall_service removes the correct file."""
+        service_file = tmp_path / "service.plist"
+        service_file.write_text("content")
+        other_file = tmp_path / "other.txt"
+        other_file.write_text("other")
+
+        uninstall_service(service_file)
+
+        assert not service_file.exists()
+        assert other_file.exists()
