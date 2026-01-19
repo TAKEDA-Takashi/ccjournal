@@ -79,6 +79,7 @@ Git コミット・プッシュ
 
 - **sync.py**: 同期ロジック
   - `generate_output_path()`: 出力パス生成
+  - `split_session_by_date()`: 日を跨ぐセッションをメッセージ単位で日付ごとに分割
   - `sync_logs()`: メイン同期処理
   - `check_repository_visibility()`: GitHub リポジトリの public/private 判定
   - `check_push_permission()`: push 権限チェック（visibility + 設定）
@@ -89,13 +90,15 @@ Git コミット・プッシュ
   - `start_daemon()`: デーモン起動
   - `stop_daemon()`: デーモン停止
   - `get_daemon_status()`: デーモン状態取得
+  - `uninstall_service()`: サービスファイルの削除
 
 - **cli.py**: CLI コマンド
   - `init`: インタラクティブ設定
   - `sync`: ログ同期（`--dry-run`, `--date`, `--no-commit`, `--no-push`）
   - `config show/edit`: 設定管理
   - `list`: ログ一覧
-  - `daemon install`: 自動同期設定
+  - `daemon install`: 自動同期サービスのインストール
+  - `daemon uninstall`: サービスのアンインストール（停止→設定削除）
 
 ## CLIエントリーポイント
 

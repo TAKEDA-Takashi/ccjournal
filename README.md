@@ -127,7 +127,8 @@ claude-logs/
 | `ccjournal config show` | Show current configuration |
 | `ccjournal config edit` | Open config in editor |
 | `ccjournal list` | List recent synced logs |
-| `ccjournal daemon install` | Show daemon setup instructions |
+| `ccjournal daemon install` | Install daemon as system service |
+| `ccjournal daemon uninstall` | Uninstall daemon service |
 
 ## Automatic Sync
 

@@ -127,7 +127,8 @@ claude-logs/
 | `ccjournal config show` | 現在の設定を表示 |
 | `ccjournal config edit` | エディタで設定を編集 |
 | `ccjournal list` | 最近の同期済みログを一覧表示 |
-| `ccjournal daemon install` | デーモン設定の手順を表示 |
+| `ccjournal daemon install` | デーモンをシステムサービスとしてインストール |
+| `ccjournal daemon uninstall` | デーモンサービスをアンインストール |
 
 ## 自動同期
 
