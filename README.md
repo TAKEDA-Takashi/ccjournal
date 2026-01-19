@@ -151,6 +151,35 @@ Create user services for periodic sync. See `ccjournal daemon install` for detai
 */5 * * * * /usr/local/bin/ccjournal sync
 ```
 
+## Troubleshooting
+
+### macOS: "unidentified developer" warning
+
+When running `ccjournal daemon install`, macOS may show a security warning because the package is not signed with an Apple Developer ID.
+
+**Option 1: Allow via System Settings (Apple recommended)**
+
+1. Open "System Settings" → "Privacy & Security"
+2. Find the blocked app and click "Open Anyway"
+
+See: [Open a Mac app from an unknown developer - Apple Support](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac)
+
+**Option 2: Remove quarantine attribute**
+
+```bash
+# Remove quarantine attribute from ccjournal
+xattr -dr com.apple.quarantine ~/.local/bin/ccjournal
+xattr -dr com.apple.quarantine ~/.local/share/uv/tools/ccjournal/
+```
+
+Then reload the service:
+```bash
+launchctl unload ~/Library/LaunchAgents/com.ccjournal.daemon.plist
+launchctl load ~/Library/LaunchAgents/com.ccjournal.daemon.plist
+```
+
+See: [Apple Developer Forums - Avoiding notarisation & Gatekeeper](https://developer.apple.com/forums/thread/666452)
+
 ## Development
 
 ```bash

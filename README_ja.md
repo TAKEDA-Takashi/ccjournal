@@ -151,6 +151,35 @@ ccjournal daemon install
 */5 * * * * /usr/local/bin/ccjournal sync
 ```
 
+## トラブルシューティング
+
+### macOS: 「開発元を確認できない」警告
+
+`ccjournal daemon install` を実行した際、Apple Developer ID で署名されていないため、macOS がセキュリティ警告を表示することがあります。
+
+**方法1: システム設定から許可（Apple推奨）**
+
+1. 「システム設定」→「プライバシーとセキュリティ」を開く
+2. ブロックされたアプリを見つけて「このまま開く」をクリック
+
+参照: [不明な開発元の Mac アプリを開く - Apple サポート](https://support.apple.com/ja-jp/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac)
+
+**方法2: 隔離属性を削除**
+
+```bash
+# ccjournal から隔離属性を削除
+xattr -dr com.apple.quarantine ~/.local/bin/ccjournal
+xattr -dr com.apple.quarantine ~/.local/share/uv/tools/ccjournal/
+```
+
+その後、サービスを再読み込み:
+```bash
+launchctl unload ~/Library/LaunchAgents/com.ccjournal.daemon.plist
+launchctl load ~/Library/LaunchAgents/com.ccjournal.daemon.plist
+```
+
+参照: [Apple Developer Forums - Avoiding notarisation & Gatekeeper](https://developer.apple.com/forums/thread/666452)
+
 ## 開発
 
 ```bash
