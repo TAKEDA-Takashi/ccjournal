@@ -52,7 +52,7 @@ jobs:
       - name: Check version consistency
         if: github.event_name == 'push'
         run: |
-          PACKAGE_VERSION="v$(uv run python -c "import ccjournal; print(ccjournal.__version__)")"
+          PACKAGE_VERSION="v$(grep -Po '(?<=^version = ")[^"]+' pyproject.toml)"
           TAG_VERSION="${{ github.ref_name }}"
           if [ "$PACKAGE_VERSION" != "$TAG_VERSION" ]; then
             echo "Error: Tag version ($TAG_VERSION) doesn't match package version ($PACKAGE_VERSION)"
