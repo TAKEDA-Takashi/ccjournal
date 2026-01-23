@@ -1,6 +1,6 @@
 [project]
 name = "ccjournal"
-version = "0.2.0"
+version = "0.3.0"
 description = "Sync Claude Code conversation logs to Git repository"
 readme = "README.md"
 license = "MIT"
