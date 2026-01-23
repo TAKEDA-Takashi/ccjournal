@@ -431,6 +431,11 @@ def generate_launchd_plist(ccjournal_path: str, log_path: Path) -> str:
     Returns:
         Plist content as a string.
     """
+    # Include both Apple Silicon and Intel Homebrew paths for compatibility
+    homebrew_paths = "/opt/homebrew/bin:/usr/local/bin"
+    default_paths = "/usr/bin:/bin:/usr/sbin:/sbin"
+    path_value = f"{homebrew_paths}:{default_paths}"
+
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -444,6 +449,11 @@ def generate_launchd_plist(ccjournal_path: str, log_path: Path) -> str:
         <string>start</string>
         <string>--foreground</string>
     </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>{path_value}</string>
+    </dict>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
